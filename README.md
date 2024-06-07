@@ -2,7 +2,7 @@
 
 
 
-**Sample Information**: Sample data and information are stored in [sample_info](../summer_internship_2024/sample_info)
+**Sample Information**: Sample data and information are stored in [sample_info](sample_info)
 
 
 software: 
