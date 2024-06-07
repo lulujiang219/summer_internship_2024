@@ -1,74 +1,12 @@
 # summer_internship_2024
-```
-project_directory/
-├── raw_data/
-│   ├── A1/
-│   │   ├── A1_1.fastq.gz
-│   │   ├── A1_2.fastq.gz
-│   ├── A2/
-│   │   ├── A2_1.fastq.gz
-│   │   ├── A2_2.fastq.gz
-│   ├── A3/
-│   │   ├── A3_1.fastq.gz
-│   │   ├── A3_2.fastq.gz
-│   ├── B1/
-│   │   ├── B1_1.fastq.gz
-│   │   ├── B1_2.fastq.gz
-│   ├── B2/
-│   │   ├── B2_1.fastq.gz
-│   │   ├── B2_2.fastq.gz
-│   ├── B3/
-│   │   ├── B3_1.fastq.gz
-│   │   ├── B3_2.fastq.gz
-│   ├── C1/
-│   │   ├── C1_1.fastq.gz
-│   │   ├── C1_2.fastq.gz
-│   ├── C2/
-│   │   ├── C2_1.fastq.gz
-│   │   ├── C2_2.fastq.gz
-│   ├── C3/
-│   │   ├── C3_1.fastq.gz
-│   │   ├── C3_2.fastq.gz
-│   ├── D1/
-│   │   ├── D1_1.fastq.gz
-│   │   ├── D1_2.fastq.gz
-│   ├── D2/
-│   │   ├── D2_1.fastq.gz
-│   │   ├── D2_2.fastq.gz
-│   ├── D3/
-│   │   ├── D3_1.fastq.gz
-│   │   ├── D3_2.fastq.gz
-│   ├── E1/
-│   │   ├── E1_1.fastq.gz
-│   │   ├── E1_2.fastq.gz
-│   ├── E2/
-│   │   ├── E2_1.fastq.gz
-│   │   ├── E2_2.fastq.gz
-│   ├── E3/
-│   │   ├── E3_1.fastq.gz
-│   │   ├── E3_2.fastq.gz
-│   ├── F1/
-│   │   ├── F1_1.fastq.gz
-│   │   ├── F1_2.fastq.gz
-│   ├── F2/
-│   │   ├── F2_1.fastq.gz
-│   │   ├── F2_2.fastq.gz
-│   ├── F3/
-│   │   ├── F3_1.fastq.gz
-│   │   ├── F3_2.fastq.gz
-├── reference/
-│   ├── GRCh38.primary_assembly.genome.fa
-│   ├── gencode.v38.annotation.gtf
-├── results/
-│   ├── alignments/
-│   ├── sorted_bams/
-│   ├── counts/
-├── scripts/
-│   ├── run_cutadapt.sh
-│   ├── Snakefile
 
-```
 
+
+**Sample Information**: Sample data and information are stored in [sample_info](../sample_info)
+
+
+software: 
+running on SCC, but if run on local:
 ```
 conda install STAR
 ```
@@ -85,12 +23,59 @@ conda install -c bioconda subread
 conda install -c bioconda snakemake
 ```
 
-
+# Workflow
 ## 1. Quality Control and Trimming
 Run FastQC and Cutadapt for quality control and trimming of the raw sequencing reads.
 
 ## 2. Generate STAR Genome Index
-Generate a new STAR genome index using STAR version 2.7.11b:
+* Generate a new STAR genome index using STAR version 2.7.11b:
 ```
 STAR --runThreadN 4 --runMode genomeGenerate --genomeDir samples/hg38_125_gencodeV38_STAR2.7.11b/ --genomeFastaFiles samples/GRCh38.primary_assembly.genome.fa --sjdbGTFfile samples/gencode.v38.annotation.gtf --sjdbOverhang 100
+```
+
+* Create a bash script (generate_star_genome_index.sh) that submits this job through qsub with the -P projectlang option. 
+
+* Define variables(file location) using "$" within the script.
+
+
+
+## 3. Run STAR Alignment for Trimmed FASTQ Files
+Create a script (run_star.sh)
+
+* defined a temporary folder temp3/ with each $sample having a individual folder within to prevent overide
+* delete the intermediate/temp folder after.
+
+* Run STAR alignment --> Run samtools to index the BAM file --> Run featureCounts to generate counts --> Remove intermediate files 
+
+* Test the script on a single sample before submitting the full job using qsub. Load the necessary modules and run the following commands:
+```
+# Load required modules
+module load python/3.8.10
+module load cutadapt/3.4
+module load samtools/1.10
+module load subread/2.0.1
+module load star/2.7.10b
+
+# Define the paths for the test sample
+STARREFGENOME="/projectnb/langchip/Data/Genomes/hg38_125_gencodeV38_STAR2.7.10b/"
+GTF_FILE="/projectnb/langchip/Data/Genomes/gencode.v38.annotation.gtf"
+SAMPLE="C1"
+TEMPOUT="/projectnb/langchip/PersonalFolder/Lulu/temp3/${SAMPLE}/"
+FINALOUT="/projectnb/langchip/PersonalFolder/Lulu/star/"
+R1_FILE="/projectnb/langchip/PersonalFolder/Lulu/trimmed/${SAMPLE}_trimmed.R1.fastq.gz"
+R2_FILE="/projectnb/langchip/PersonalFolder/Lulu/trimmed/${SAMPLE}_trimmed.R2.fastq.gz"
+
+# Create necessary directories
+mkdir -p $TEMPOUT
+mkdir -p $FINALOUT
+
+echo "Running STAR alignment for sample: $SAMPLE"
+STAR --genomeDir $STARREFGENOME --readFilesIn $R1_FILE $R2_FILE --runThreadN 4 --readFilesCommand zcat --outFileNamePrefix ${TEMPOUT}${SAMPLE}_ --outSAMtype BAM SortedByCoordinate
+
+echo "Indexing BAM file for sample: $SAMPLE"
+samtools index ${TEMPOUT}${SAMPLE}_Aligned.sortedByCoord.out.bam
+
+echo "Running featureCounts for sample: $SAMPLE"
+featureCounts -T 4 -a $GTF_FILE -o ${TEMPOUT}${SAMPLE}_counts.txt ${TEMPOUT}${SAMPLE}_Aligned.sortedByCoord.out.bam
+
 ```
