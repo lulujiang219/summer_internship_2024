@@ -22,6 +22,8 @@ conda install -c bioconda subread
 ```
 conda install -c bioconda snakemake
 ```
+![image](https://github.com/lulujiang219/summer_internship_2024/assets/52995244/033cdf41-1663-4fa8-9f97-036716d099ec)
+
 
 # Workflow
 ## 1. Quality Control and Trimming
