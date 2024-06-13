@@ -27,7 +27,7 @@ conda install -c bioconda snakemake
 
 # Workflow
 ## 1. Quality Control and Trimming
-Run FastQC and Cutadapt for quality control and trimming of the raw sequencing reads.
+Run FastQC v0.11.9 and Cutadapt for quality control and trimming of the raw sequencing reads.
 
 ## 2. Generate STAR Genome Index
 * Generate a new STAR genome index using STAR version 2.7.11b:
