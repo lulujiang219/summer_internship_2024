@@ -1,0 +1,229 @@
+```{r}
+library(IsoformSwitchAnalyzeR)
+library(BSgenome.Hsapiens.UCSC.hg38)
+
+```
+
+```{r}
+# List of DEI (Differentially expressed isoforms)
+isoformQuant <- importIsoformExpression(
+    parentDir = "/projectnb/czlab/A00/simon/Lang/DownstreamAnalysis/sampleIsoform/new",
+    addIsofomIdAsColumn = TRUE
+)
+```
+
+
+```{r}
+
+isoformQuant$counts$isoform_id <- sub("_.*","", isoformQuant$counts$isoform_id)
+isoformQuant$abundance$isoform_id <- sub("_.*","", isoformQuant$abundance$isoform_id)
+isoformQuant$length$isoform_id <- sub("_.*","", isoformQuant$length$isoform_id)
+
+length(isoformQuant$counts$isoform_id)
+length(unique(isoformQuant$counts$isoform_id))
+# Original length: 237,012, 237,012
+# Unique values: 236,853 237,012
+
+# isoformQuant$counts[duplicated(isoformQuant$counts$isoform_id),]
+
+unique_isoforms <- !duplicated(isoformQuant$counts$isoform_id)
+
+isoformQuant$counts <- isoformQuant$counts[unique_isoforms,]
+isoformQuant$abundance <- isoformQuant$abundance[unique_isoforms,]
+isoformQuant$length <- isoformQuant$length[unique_isoforms,]
+
+```
+
+
+```{r}
+myDesign <- data.frame(
+    sampleID = colnames(isoformQuant$abundance)[-1],
+    condition = ifelse(grepl("PAX", colnames(isoformQuant$abundance)[-1]), "pax", "scramble")
+)
+
+aSwitchList <- importRdata(
+    isoformCountMatrix   = isoformQuant$counts,
+    isoformRepExpression = isoformQuant$abundance,
+    designMatrix         = myDesign,
+    isoformExonAnnoation = "/projectnb/adscdata/CZ/Genomes/Human/GTF/gencode.v38.annotation.gtf",
+    ignoreAfterBar = TRUE,
+    ignoreAfterSpace = TRUE,
+    showProgress = FALSE
+)
+```
+
+```{r}
+aSwitchList$isoformFeatures
+aSwitchList$isoformFeatures[grepl("HUNK", aSwitchList$isoformFeatures$gene_id),]
+
+```
+
+```{r}
+aSwitchList$isoformFeatures[grepl("PAX3", aSwitchList$isoformFeatures$gene_id),]
+
+```
+
+```{r}
+aSwitchList$isoformFeatures[grepl("SRSF4", aSwitchList$isoformFeatures$gene_id),]
+
+```
+```{r}
+aSwitchList$isoformFeatures[grepl("EIF4A2", aSwitchList$isoformFeatures$gene_id),]
+
+
+```
+
+
+```{r}
+exampleSwitchList <- isoformSwitchAnalysisPart1(
+    switchAnalyzeRlist   = aSwitchList,
+    pathToOutput = '/projectnb/czlab/A00/simon/Lang/DownstreamAnalysis',
+    genomeObject = Hsapiens,
+    prepareForWebServers = FALSE,
+    outputSequences = TRUE
+)
+```
+
+```{r}
+write.csv(exampleSwitchList$isoformFeatures, "DEI_pax_vs_scramble.csv")
+# saveRDS(exampleSwitchList, "20240418_pax_vs_scramble_SwitchList.rds")
+exampleSwitchList <- readRDS("20240418_pax_vs_scramble_SwitchList.rds")  
+```
+```{r}
+length(unique(exampleSwitchList$isoformFeatures$gene_id))
+```
+
+
+```{r}
+de <- exampleSwitchList$isoformFeatures
+
+
+de$diffexpressed <- "NO"
+# if log2Foldchange > 0.25 and pvalue < 0.05, set as "UP"
+de$diffexpressed[de$dIF > 0.1 & de$isoform_switch_q_value < 0.05] <- "UP"
+# if log2Foldchange < -0.25 and pvalue < 0.05, set as "DOWN"
+de$diffexpressed[de$dIF < -0.1 & de$isoform_switch_q_value < 0.05] <- "DOWN"
+
+de$delabel <- ifelse(de$gene_id %in% head(de[order(de$dIF), "gene_id"], 5), de$gene_id, NA)
+
+# subset_df <- de[complete.cases(de[, "X"]), ]
+# c1 <- subset_df[subset_df[, "log2FoldChange"] > 0 & subset_df[, "pvalue"] <0.05, ] # condition 1
+# c2 <- subset_df[subset_df[, "log2FoldChange"] < 0 & subset_df[, "pvalue"] <0.05, ] # condition 2
+# c1_byLogFC <- c1[order(c1$log2FoldChange,decreasing = TRUE),]
+# c2_byLogFC <- c2[order(c2$log2FoldChange,decreasing = FALSE),]
+# c1_top10 <- head(c1_byLogFC, 10)$X
+# c2_top10 <- head(c2_byLogFC, 10)$X
+# genes <- c("PAX3","EIF4A2","SRSF4")
+# labeled_proteins <- c(c1_top10, c2_top10, genes)
+de$delabel <- ifelse(de$diffexpressed %in% c("UP", "DOWN"), de$gene_id, NA)
+# de$delabel <- ifelse(de$X %in% genes, de$X, de$delabel) 
+```
+
+```{r}
+library(tidyverse) # includes ggplot2, for data visualisation. dplyr, for data manipulation.
+library(RColorBrewer) # for a colourful plot
+library(ggrepel)
+volcanoplot <- function() {
+  ggplot(data = de, aes(x = dIF, y = -log10(isoform_switch_q_value), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.1, 0.1), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') + 
+    geom_point(data = de %>% filter(diffexpressed == "DOWN"), color = "#00AFBB",size=0.8, alpha=0.5) +
+    geom_point(data = de %>% filter(diffexpressed == "NO"), color = "gray",size=0.8, alpha=0.5) +
+    geom_point(data = de %>% filter(diffexpressed == "UP"), color = "#bb0c00",size=0.8, alpha=0.5) +
+    geom_text_repel(min.segment.length = 0, size = 2, max.overlaps = 10, show.legend = F,) +
+  scale_color_manual(values = c("DOWN" = "black", "NO" = "gray", "UP" =  "black"))+
+    guides(color = guide_legend(title = NULL))+
+  # coord_cartesian(ylim = c(0, 30), xlim = c(-2, 2)) + # set limits
+    # coord_cartesian(xlim = c(-9.5, 9.5)) +
+  labs(#color = 'Differential Expression', #legend_title
+       x = expression("dIF"), y = expression("-log"[10]*"q-value")) + 
+  scale_x_continuous(breaks = seq(-10, 10, 1)) + # to customize the breaks in the x axis
+  # ggtitle(paste0('Differentially Expressed Proteins in 12Trp (high-Trp) with vs. without xenograft')) + # Plot title 
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text=element_text(size=16))
+}
+pdf("isoform_volcanoPlot2.pdf")
+volcanoplot()
+dev.off()
+```
+
+
+```{r}
+dif <- exampleSwitchList$isoformFeatures
+
+ggplot(de, aes(x=dIF, y=-log10(isoform_switch_q_value))) +
+     geom_point(
+        aes( color=abs(dIF) > 0.1 & isoform_switch_q_value < 0.05 ), # default cutoff
+        size=1
+    ) +
+    geom_hline(yintercept = -log10(0.05), linetype='dashed') + # default cutoff
+    geom_vline(xintercept = c(-0.1, 0.1), linetype='dashed') + # default cutoff
+    # facet_wrap( ~ condition_2) +
+    # facet_grid(condition_1 ~ condition_2) + # alternative to facet_wrap if you have overlapping conditions
+    scale_color_manual('Signficant\nIsoform Switch', values = c('black','red')) +
+    labs(x='dIF', y='-Log10 ( Isoform Switch Q Value )') +
+    theme_bw()
+```
+
+
+```{r}
+### Add CPAT analysis
+exampleSwitchListAnalyzed <- analyzeCPAT(
+    switchAnalyzeRlist   = exampleSwitchList,
+    pathToCPATresultFile = "/projectnb/czlab/A00/simon/Lang/DownstreamAnalysis/extdata",
+    codingCutoff         = 0.725, # the coding potential cutoff we suggested for human
+    removeNoncodinORFs   = TRUE   # because ORF was predicted de novo
+)
+```
+
+```{r}
+# exampleSwitchListAnalyzed <- extractSequence(
+#     exampleSwitchListAnalyzed, 
+#     genomeObject = Hsapiens,
+#     pathToOutput = '/projectnb/czlab/A00/simon/Lang/DownstreamAnalysis')
+```
+
+```{r}
+# head(exampleSwitchListAnalyzed$ntSequence,2)
+# exampleSwitchListAnalyzed$isoformFeatures
+```
+```{r}
+switchPlot(exampleSwitchList, gene = 'XYLB')
+```
+
+```{r}
+pdf("HUNK_isoUsage.pdf")
+switchPlotIsoUsage(exampleSwitchList, gene = 'HUNK')
+dev.off()
+```
+
+
+```{r}
+exampleSwitchList$isoformFeatures[grepl("HUNK", exampleSwitchList$isoformFeatures$gene_id),]
+```
+
+```{r}
+exampleSwitchListAnalyzed <- isoformSwitchTestDEXSeq(
+    switchAnalyzeRlist = exampleSwitchList,
+    reduceToSwitchingGenes=TRUE
+)
+```
+
+
+```{r}
+extractSwitchOverlap(
+    exampleSwitchListAnalyzed,
+    filterForConsequences=TRUE,
+    plotIsoforms = FALSE
+)
+```
+```{r}
+exampleSwitchListAnalyzed$isoformFeatures
+```
+
+
+```{r}
+table(is.na(exampleSwitchListAnalyzed$isoformFeatures$gene_switch_q_value))
+```
+
